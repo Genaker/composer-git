@@ -100,6 +100,24 @@ if "GITHUB_USER" in os.environ:
 else:
     gitUser = "Genaker"
 
+#The value of the GITHUB_TOKEN environment variable is being used for authentication.
+os.system("echo "+ gitToken +" | gh auth login --with-token")
+print("Check GitHub Auth")
+gitAuthStatus = exec("gh auth status")
+if "Logged in to github.com as" not in gitAuthStatus:
+    print("Git Hub Credetials Error!!!")
+    exit()
+
+
+list_packages_by_organization = "https://packagist.org/packages/list.json?vendor="+organisationName
+r = requests.get(list_packages_by_organization)
+print("List packages by organization [{organisationName}]".format(organisationName=organisationName))
+packages = r.json()
+packages = packages["packageNames"]
+
+for package in packages:
+    print(package)
+
 #operation is slow for test it is better not to use it 
 updatePackagistPackage = True;
 gitPushToMaster = False;
@@ -243,16 +261,16 @@ for module in folders:
             print("Tag " + moduleVersion + " already exists")
 
 
-
+        #Old code we have better one now -> check packages list
         print("Check if package exists")
-        r = requests.get(packagistPackageCheck)
-        print(r.json())
+        #r = requests.get(packagistPackageCheck)
+        #print(r.json())
 
         # Create a package operation is slow
         # This endpoint creates a package for a specific repo. Parameters username and apiToken are required. Only POST method is allowed.
         #POST https://packagist.org/api/create-package?username=[username]&apiToken=[apiToken] -d '{"repository":{"url":"[url]"}}'
 
-        if r.status_code == 404:
+        if moduleNameNew not in packages: #r.status_code == 404:
             #Create new package: 
             createPackageCommand = "curl -X POST 'https://packagist.org/api/create-package?username=" + packagistUser + "&apiToken=" + packagistAPIToken + "' -d '{\"repository\":{\"url\":\"https://github.com/" + moduleNameNew + "\"}}'"
             print (colored(createPackageCommand, 'green'))
