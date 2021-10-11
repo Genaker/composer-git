@@ -81,11 +81,24 @@ organisationName = "test-magenx"
 exec("mkdir -p " + buildFolder)
 
 #set your keys and users
-#toDo: use Env and inpit
-packagistAPIToken = "M7W****"
-packagistUser = "genaker"
-gitToken = "ghp_UHA4aDn*****"
-gitUser = "Genaker"
+# set cretentials: export PACKAGIST_TOKEN=M7W** && export PACKAGIST_USER=genaker && export GITHUB_TOKEN="****" && export GITHUB_USER="Genaker"
+
+if "PACKAGIST_TOKEN" in os.environ:
+    packagistAPIToken = os.environ.get("PACKAGIST_TOKEN")
+else:
+    packagistAPIToken = "M7W**"
+if "PACKAGIST_USER" in os.environ:
+    packagistUser = os.environ.get("PACKAGIST_USER")
+else:
+    packagistUser = "genaker"
+if "GITHUB_TOKEN" in os.environ:
+    gitToken = os.environ.get("GITHUB_TOKEN")
+else:
+    gitToken = "ghp_UHA4aDn**"
+if "GITHUB_USER" in os.environ:
+    gitUser = os.environ.get("GITHUB_USER")
+else:
+    gitUser = "Genaker"
 
 #operation is slow for test it is better not to use it 
 updatePackagistPackage = True;
