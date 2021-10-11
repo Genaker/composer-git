@@ -6,14 +6,25 @@ import pprint as p
 import json
 import requests
 import time
+import argparse
 # requires execute: pip3 install termcolor
 from termcolor import colored
 
 os.system("python3 -V")
 os.system("echo $TEST")
 
-#Magento Release tag version
-gitTagVersionBranch = "2.3.2"
+parser = argparse.ArgumentParser()
+parser.add_argument('-v','--version',type=str)
+args = parser.parse_args()
+version = args.version
+
+
+if version == None:
+    #Magento Release tag version
+    gitTagVersionBranch = "2.3.2"
+else:
+    gitTagVersionBranch = version
+    print("Using input version: " + version)
 
 os.system("git clone https://github.com/magento/magento2.git magento2-source")
 os.system("git config core.filemode false")
@@ -54,7 +65,12 @@ def exec(command, return_code_output=False, output=True):
         print(colored("Command Execution Time %s seconds" % str(time.time() - start_time), "magenta"))
         return str(result_output.decode())
 
-result = exec("sfsdfds")
+checkGitHubCli = exec("gh")
+
+if "not found" in checkGitHubCli:
+    print("Command 'gh' is required and not found!!!")
+    print("Visit: to instll: https://cli.github.com/manual/installation")
+    exit()
 
 print(folders)
 # Folder to copy modules to
@@ -66,9 +82,9 @@ exec("mkdir -p " + buildFolder)
 
 #set your keys and users
 #toDo: use Env and inpit
-packagistAPIToken = "M7W***"
+packagistAPIToken = "M7W****"
 packagistUser = "genaker"
-gitToken = "ghp_UHA4aD***"
+gitToken = "ghp_UHA4aDn*****"
 gitUser = "Genaker"
 
 #operation is slow for test it is better not to use it 
