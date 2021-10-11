@@ -6,17 +6,22 @@ import pprint as p
 import json
 import requests
 import time
+# requires execute: pip3 install termcolor
 from termcolor import colored
 
 os.system("python3 -V")
 os.system("echo $TEST")
 
 #Magento Release tag version
-gitTagVersionBranch = "2.4.1"
-gitCheckoutCommand = "cd ./magento2/ && git checkout tags/"+gitTagVersionBranch
+gitTagVersionBranch = "2.3.2"
+
+os.system("git clone https://github.com/magento/magento2.git magento2-source")
+os.system("git config core.filemode false")
+
+gitCheckoutCommand = "cd ./magento2-source/ && git checkout tags/"+gitTagVersionBranch
 
 os.system(gitCheckoutCommand)
-path = "./magento2/app/code/Magento/"
+path = "./magento2-source/app/code/Magento/"
 
 folders = glob.glob(path + '*')
 #ToDo: add another folders with the composer packages
@@ -57,17 +62,17 @@ buildFolder = "magento-modules-separate"
 # Name of the gitHub organisation or account
 # (account is not tested by doc it shuld be empty but baybe it will works)
 organisationName = "test-magenx"
-exec("mkdir " + buildFolder)
+exec("mkdir -p " + buildFolder)
 
 #set your keys and users
 #toDo: use Env and inpit
-packagistAPIToken = "M7WSv**"
+packagistAPIToken = "M7W***"
 packagistUser = "genaker"
-gitToken = "ghp_NXNjy***"
+gitToken = "ghp_UHA4aD***"
 gitUser = "Genaker"
 
 #operation is slow for test it is better not to use it 
-updatePackagistPackage = False;
+updatePackagistPackage = True;
 gitPushToMaster = False;
 modules_count = str(len(folders))
 
@@ -95,7 +100,13 @@ for module in folders:
         f.close()
 
         moduleName = data["name"]
+
+        if "version" not in data:
+            print("composer version is not set try to use release version")
+        
         moduleVersion = data["version"]
+
+
         print("Magento Module Name: " + moduleName)
         print("Magento Module Version: " + moduleVersion)
 
@@ -130,14 +141,14 @@ for module in folders:
         r = requests.get(ghAPIURL)
         #print(r.json())
 
-        if r.status_code is 200:
+        if r.status_code == 200:
             print("Repo " + ghAPIURL + " Exists")
 
         # Create a package operation is slow
         # This endpoint creates a package for a specific repo. Parameters username and apiToken are required. Only POST method is allowed.
         #POST https://packagist.org/api/create-package?username=[username]&apiToken=[apiToken] -d '{"repository":{"url":"[url]"}}'
 
-        if r.status_code is 404:
+        if r.status_code == 404:
             #Create gitHub repo. If it is exist it will return error. 
             ghCreateRepo = "gh repo create " + moduleNameNew + " --public --confirm"
             print(cdCommand + " && " + ghCreateRepo)
@@ -151,9 +162,9 @@ for module in folders:
 
         # Commit to the master the latest version
         # ToDo: check it is id the lates version
-        if gitPushToMaster is True:
+        if gitPushToMaster == True:
             print("Push Magento master branch")
-            commitCommand = "git checkout -b master; git add . ; git commit -m 'Magento Fork initial commit'; git push -u origin master"
+            commitCommand = "git checkout -b master; git add . ; git commit -m 'Magento Fork initial commit'; git push  -u origin master"
             print (colored(cdCommand + " && " + commitCommand, 'green'))
             exec(cdCommand + " && " + commitCommand)
 
@@ -212,7 +223,7 @@ for module in folders:
         # This endpoint creates a package for a specific repo. Parameters username and apiToken are required. Only POST method is allowed.
         #POST https://packagist.org/api/create-package?username=[username]&apiToken=[apiToken] -d '{"repository":{"url":"[url]"}}'
 
-        if r.status_code is 404:
+        if r.status_code == 404:
             #Create new package: 
             createPackageCommand = "curl -X POST 'https://packagist.org/api/create-package?username=" + packagistUser + "&apiToken=" + packagistAPIToken + "' -d '{\"repository\":{\"url\":\"https://github.com/" + moduleNameNew + "\"}}'"
             print (colored(createPackageCommand, 'green'))
@@ -221,7 +232,7 @@ for module in folders:
         # Packagist update package: 
         #https://packagist.org/api/update-package?username=genaker&apiToken=API_TOKEN 
         # with a request body looking like this: {"repository":{"url":"PACKAGIST_PACKAGE_URL"}}
-        if updatePackagistPackage is True:
+        if updatePackagistPackage == True:
             updatePackageCommand  =  "curl -XPOST -H'content-type:application/json' 'https://packagist.org/api/update-package?username="+ packagistUser + "&apiToken=" + packagistAPIToken + "' -d'{\"repository\":{\"url\":\"https://github.com/" + moduleNameNew + "\"}}'"
             print(colored(updatePackageCommand, 'blue'))
             exec(updatePackageCommand)
