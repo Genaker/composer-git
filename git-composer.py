@@ -109,14 +109,29 @@ if "Logged in to github.com as" not in gitAuthStatus:
     exit()
 
 
-list_packages_by_organization = "https://packagist.org/packages/list.json?vendor="+organisationName
-r = requests.get(list_packages_by_organization)
+list_packages_by_organization_url = "https://packagist.org/packages/list.json?vendor="+organisationName
+r = requests.get(list_packages_by_organization_url)
 print("List packages by organization [{organisationName}]".format(organisationName=organisationName))
 packages = r.json()
 packages = packages["packageNames"]
 
 for package in packages:
     print(package)
+
+organisationForAPI = "orgs/" + organisationName
+#Check if it is user and not org
+#organisationForAPI="user"
+gitAuthHaeder = {gitUser: gitToken}
+list_git_organization_repositories_url = "https://api.github.com/" +organisationForAPI+"/repos?per_page=1000"
+r = requests.get(list_git_organization_repositories_url, gitAuthHaeder)
+repos = r.json()
+#print(repos)
+
+print(colored("Repos of the organisation["+organisationName+"]","green"))
+gitReposetories = []
+for reposetory in repos:
+    print(reposetory["full_name"])
+    gitReposetories.append(reposetory["full_name"])
 
 #operation is slow for test it is better not to use it 
 updatePackagistPackage = True;
@@ -182,20 +197,21 @@ for module in folders:
         print(cdCommand + " && git fetch ")
         os.system(cdCommand + " && git fetch ")
 
+        # outdated now we are cheking gitReposetories list 
         #Check if repo exists
-        ghAPIURL = "https://api.github.com/repos/" + moduleNameNew
-        print("Check if repo " + ghAPIURL + " exists")
-        r = requests.get(ghAPIURL)
+        #ghAPIURL = "https://api.github.com/repos/" + moduleNameNew
+        #print("Check if repo " + ghAPIURL + " exists")
+        #r = requests.get(ghAPIURL, gitAuthHaeder)
         #print(r.json())
 
-        if r.status_code == 200:
-            print("Repo " + ghAPIURL + " Exists")
+        if moduleNameNew in gitReposetories:
+            print("Repo " + moduleNameNew + " Exists")
 
         # Create a package operation is slow
         # This endpoint creates a package for a specific repo. Parameters username and apiToken are required. Only POST method is allowed.
         #POST https://packagist.org/api/create-package?username=[username]&apiToken=[apiToken] -d '{"repository":{"url":"[url]"}}'
 
-        if r.status_code == 404:
+        if moduleNameNew not in gitReposetories:
             #Create gitHub repo. If it is exist it will return error. 
             ghCreateRepo = "gh repo create " + moduleNameNew + " --public --confirm"
             print(cdCommand + " && " + ghCreateRepo)
