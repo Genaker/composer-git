@@ -18,6 +18,8 @@ parser.add_argument('-v','--version',type=str)
 args = parser.parse_args()
 version = args.version
 
+logf = open("./log.txt", 'w')
+log_str = ""
 
 if version == None:
     #Magento Release tag version
@@ -26,20 +28,26 @@ else:
     gitTagVersionBranch = version
     print("Using input version: " + version)
 
+logf.write("Version:" + gitTagVersionBranch + "\n")
+
 os.system("git clone https://github.com/magento/magento2.git magento2-source")
 os.system("git config core.filemode false")
 
 gitCheckoutCommand = "cd ./magento2-source/ && git checkout tags/"+gitTagVersionBranch
 
+logf.write("cd ./magento2-source/ && git checkout tags/"+gitTagVersionBranch+"\n")
+
 os.system(gitCheckoutCommand)
 path = "./magento2-source/app/code/Magento/"
 
-folders = glob.glob(path + '*')
-#ToDo: add another folders with the composer packages
-# ./magento2/app/design/adminhtml/Magento/*
-# ./magento2/app/design/frontend/Magento
-# ./magento2/app/i18n/Magento
-# ./magento2/lib/internal/Magento/
+app_folders = glob.glob(path + '*')
+frontend_theme_folder = glob.glob("./magento2/app/design/frontend/Magento/*")
+backend_theme_folder = glob.glob("./magento2/app/design/adminhtml/Magento/*")
+language_folder = glob.glob("./magento2/app/i18n/Magento/*")
+magento_framework_folder = glob.glob("./magento2/lib/internal/Magento/*")
+
+folders = app_folders + frontend_theme_folder + magento_framework_folder + language_folder + backend_theme_folder
+#ToDo: add another folders with the composer packages. Done 
 # etc...
 
 n = 1;
@@ -141,7 +149,9 @@ modules_count = str(len(folders))
 for module in folders:
     module_start_time = time.time()
     # module actualy is a magento folder like :./magento2/app/code/Magento/Paypal
-    print(colored("\n=====[" + module + "]("+str(n)+"/"+modules_count+")========>", 'red'))
+    moduleStartStr = "\n=====[" + module + "]("+str(n)+"/"+modules_count+")========>\n"
+    print(colored(moduleStartStr, 'red'))
+    logf.write(moduleStartStr)
     n+=1
 
     # Copy a single module to separate build folder
@@ -176,7 +186,7 @@ for module in folders:
         moduleNameNew = moduleName.replace("magento/", organisationName + "/")
         print("Magento Fork Module Name: " + moduleNameNew)
         data["name"] = moduleNameNew
-
+        logf.write(module +" ----> "+moduleNameNew+"\n")
         # save new composer name to buid module folder composer.json
         with open(buildModuleFolder + "/composer.json", 'w') as f2:
             json.dump(data, f2, indent=4)
@@ -216,6 +226,7 @@ for module in folders:
             ghCreateRepo = "gh repo create " + moduleNameNew + " --public --confirm"
             print(cdCommand + " && " + ghCreateRepo)
             exec(cdCommand + " && " + ghCreateRepo)
+            logf.write("GitHub reposetory created:" + moduleNameNew + "\n")
 
         # add new remote origin to the magento module git local repo 
         addRemoteOriginCommand = "git remote add origin https://"+gitUser+":"+gitToken+"@github.com/" + moduleNameNew + ".git"
@@ -241,8 +252,10 @@ for module in folders:
             commitCommand = "git checkout -b " + gitTagVersionBranch + "; git add . ; git commit -m 'Magento Fork initial commit'; git push -u origin " + gitTagVersionBranch
             print (colored(cdCommand + " && " + commitCommand, 'yellow'))
             exec(cdCommand + " && " + commitCommand)
+            logf.write("GitHub magento version branch created:" + gitTagVersionBranch + "\n")
         else:
             print("Git magento release branch " + gitTagVersionBranch + " already exists")
+            logf.write("Git magento release branch " + gitTagVersionBranch + " already exists\n")
 
         # commit modile by 
         print("Push module version branch")
@@ -253,8 +266,10 @@ for module in folders:
             commitCommand = "git checkout -b " + moduleVersion + "; git add . ; git commit -m 'Magento Fork initial commit'; git push -u origin " + moduleVersion
             print (colored(cdCommand + " && " + commitCommand, 'yellow'))
             exec(cdCommand + " && " + commitCommand)
+            logf.write("GitHub module " + moduleNameNew + " version branch created:" + moduleNameNew + "\n")
         else:
             print("Git module versio branch " + moduleVersion + " already exists")
+            logf.write("Git module " + moduleNameNew + " versio branch " + moduleVersion + " already exists\n")
 
         # commit module by module version with the tags
 
@@ -291,6 +306,10 @@ for module in folders:
             createPackageCommand = "curl -X POST 'https://packagist.org/api/create-package?username=" + packagistUser + "&apiToken=" + packagistAPIToken + "' -d '{\"repository\":{\"url\":\"https://github.com/" + moduleNameNew + "\"}}'"
             print (colored(createPackageCommand, 'green'))
             exec(createPackageCommand)
+            logf.write("Pakage " + moduleNameNew + " created: https://packagist.org/" + moduleNameNew + " \n")
+        else:
+            logf.write("Pakage " + moduleNameNew + " already exist \n")
+
             
         # Packagist update package: 
         #https://packagist.org/api/update-package?username=genaker&apiToken=API_TOKEN 
@@ -298,7 +317,8 @@ for module in folders:
         if updatePackagistPackage == True:
             updatePackageCommand  =  "curl -XPOST -H'content-type:application/json' 'https://packagist.org/api/update-package?username="+ packagistUser + "&apiToken=" + packagistAPIToken + "' -d'{\"repository\":{\"url\":\"https://github.com/" + moduleNameNew + "\"}}'"
             print(colored(updatePackageCommand, 'blue'))
-            exec(updatePackageCommand)
+            update_output = exec(updatePackageCommand)
+            logf.write("Pakage " + moduleNameNew + " updated \n")
         
         print(colored("\nModule Processing Time %s seconds" % str(time.time() - module_start_time), "magenta"))
         
@@ -307,3 +327,9 @@ for module in folders:
         #print(packagistPackagesearch)
         #r = requests.get(packagistPackagesearch)
         #print(r.json())
+    else:
+        print("Crytical Error: folder " + module + " doen't have Composer.json file")
+        exit()
+logf.write("Done!!")
+logf.close();
+
