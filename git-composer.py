@@ -18,8 +18,6 @@ parser.add_argument('-v','--version',type=str)
 args = parser.parse_args()
 version = args.version
 
-logf = open("./log.txt", 'w')
-log_str = ""
 
 if version == None:
     #Magento Release tag version
@@ -28,25 +26,43 @@ else:
     gitTagVersionBranch = version
     print("Using input version: " + version)
 
+logf = open("./log-"+version.replace(".","_")+".txt", 'w')
+
 logf.write("Version:" + gitTagVersionBranch + "\n")
 
 os.system("git clone https://github.com/magento/magento2.git magento2-source")
 os.system("git config core.filemode false")
 
-gitCheckoutCommand = "cd ./magento2-source/ && git checkout tags/"+gitTagVersionBranch
+# Clone Zend Framework
+zend_version = "1.14.5"
+only_zend = False
 
-logf.write("cd ./magento2-source/ && git checkout tags/"+gitTagVersionBranch+"\n")
-
+magento_source_path = "./magento2-source/"
+gitCheckoutCommand = "cd " + magento_source_path + " && git checkout tags/"+gitTagVersionBranch
 os.system(gitCheckoutCommand)
-path = "./magento2-source/app/code/Magento/"
+
+
+os.system("rm -rf "  + magento_source_path+"/lib/internal/Magento/zendframework")
+os.system("git clone https://github.com/magento/zf1 "+magento_source_path+"/lib/internal/Magento/zendframework")
+os.system("cd "+magento_source_path+"/lib/internal/Magento/zendframework && git checkout tags/"+zend_version)
+os.system("rm -rf  "+magento_source_path+"/lib/internal/Magento/zendframework/.git")
+
+
+logf.write("cd "+magento_source_path+" && git checkout tags/"+gitTagVersionBranch+"\n")
+
+path = magento_source_path+"/app/code/Magento/"
 
 app_folders = glob.glob(path + '*')
-frontend_theme_folder = glob.glob("./magento2/app/design/frontend/Magento/*")
-backend_theme_folder = glob.glob("./magento2/app/design/adminhtml/Magento/*")
-language_folder = glob.glob("./magento2/app/i18n/Magento/*")
-magento_framework_folder = glob.glob("./magento2/lib/internal/Magento/*")
+frontend_theme_folder = glob.glob( magento_source_path+"/app/design/frontend/Magento/*")
+backend_theme_folder = glob.glob(magento_source_path+"/app/design/adminhtml/Magento/*")
+language_folder = glob.glob(magento_source_path+"/app/i18n/Magento/*")
+magento_framework_folder = glob.glob(magento_source_path+"/lib/internal/Magento/*")
 
 folders = app_folders + frontend_theme_folder + magento_framework_folder + language_folder + backend_theme_folder
+
+if only_zend is True:
+    folders = magento_framework_folder
+
 #ToDo: add another folders with the composer packages. Done 
 # etc...
 
@@ -73,6 +89,7 @@ def exec(command, return_code_output=False, output=True):
         print(colored("Command Execution Time %s seconds" % str(time.time() - start_time), "magenta"))
         return str(result_output.decode())
 
+print("Test gh cli:")
 checkGitHubCli = exec("gh")
 
 if "not found" in checkGitHubCli:
@@ -85,7 +102,7 @@ print(folders)
 buildFolder = "magento-modules-separate"
 # Name of the gitHub organisation or account
 # (account is not tested by doc it shuld be empty but baybe it will works)
-organisationName = "test-magenx"
+organisationName = "magenxcommerce"
 exec("mkdir -p " + buildFolder)
 
 #set your keys and users
@@ -158,7 +175,7 @@ for module in folders:
     exec("cp -r " + module + " " + buildFolder + "/")
     #get the last part of the module name 
     folderModuleName = module.split("/")[-1]
-    print("Module Folser: " + folderModuleName)
+    print("Module Folder: " + folderModuleName)
     buildModuleFolder = buildFolder + "/" + folderModuleName
     print("Build Module Folder: " + buildModuleFolder)
     composerPath = module+"/composer.json"
@@ -175,6 +192,10 @@ for module in folders:
 
         if "version" not in data:
             print("composer version is not set try to use release version")
+            
+            # set Hardcoded version for Zend framework
+            if "zendframework" in folderModuleName:
+                data["version"] = zend_version
         
         moduleVersion = data["version"]
 
