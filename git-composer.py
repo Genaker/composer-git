@@ -8,45 +8,79 @@ import requests
 import time
 import argparse
 import base64
-
+import urllib
 # requires execute: pip3 install termcolor
 from termcolor import colored
 
-def exec(command, return_code_output=False, output=True):
-    start_time = time.time()
-    try:
+def exec(commands, return_code_output=False, output=True, dev_null=False, system=False, wait=True, cd=''):
+
+    if type(commands) == list:
+        commands
+        print(colored("Multiple commands: " + str.join(';+', commands), 'yellow'))
+    else: commands = [commands]
+
+    if cd != '':
+        cd = 'cd ' + cd + ' && '
+    
+    for command in commands:
+        start_time = time.time()
+        if dev_null == True:
+            dev_null = ' > /dev/null '
+        else: dev_null = ''
+        
+        if wait == False:
+            wait = ' & '
+        else: wait = ''
+
+        command = cd + command + dev_null + wait
+
         print("CMD: " + command)
-        result_output = subprocess.check_output(command, shell=True, stderr=subprocess.STDOUT)
-        if output == True:
-            print("Out:")
-            print(str(result_output.decode()))
-        return_code = 0
-    except subprocess.CalledProcessError as e:
-        if output == True:
-            print("Error:")
-            print(str(e.output.decode()))
-        result_output = e.output
-        return_code = e.returncode
-    if return_code_output == True:
-        ret = {"result_output":result_output, "return_code":return_code}
-        print(ret)
-        print(colored("Command Execution Time %s seconds" % str(time.time() - start_time), "magenta"))
-        return ret
-    else:
-        print(colored("Command Execution Time %s seconds" % str(time.time() - start_time), "magenta"))
-        return str(result_output.decode())
+
+        if system == True:
+            os.system(command)
+            return
+        
+        try:
+            result_output = subprocess.check_output(command, shell=True, stderr=subprocess.STDOUT)
+            if output == True:
+                print("Out:")
+                print(str(result_output.decode()))
+            return_code = 0
+        except subprocess.CalledProcessError as e:
+            if output == True:
+                print("Error:")
+                print(str(e.output.decode()))
+            result_output = e.output
+            return_code = e.returncode
+        if return_code_output == True:
+            ret = {"result_output":result_output, "return_code":return_code}
+            print(ret)
+            print(colored("Command Execution Time %s seconds\n----------------" % str(time.time() - start_time), "magenta"))
+            return ret
+        else:
+            print(colored("Command Execution Time %s seconds\n----------------" % str(time.time() - start_time), "magenta"))
+            return str(result_output.decode())
 
 os.system("python3 -V")
 os.system("echo $TEST")
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-v','--version',type=str)
+# test run argument 
+parser.add_argument('-t','--test',  dest='test', action='store_true')
+parser.set_defaults(test=False)
 args = parser.parse_args()
+
 version = args.version
 
+try:
+    result_release = exec("gh api /repos/magento/magento2/releases", output=False)
+    releases = json.loads(result_release)
+except json.decoder.JSONDecodeError:
+    print("Fetch GitHub API data error. Check Credentials.")
+    exit()
 
-result_release = exec("gh api /repos/magento/magento2/releases", output=False)
-releases = json.loads(result_release)
+
 full_generate_command = ""
 magento_versions = []
 for release in releases:
@@ -75,9 +109,12 @@ zend_version = "1.14.5"
 only_zend = False
 composer_only = False#True
 clean_up = True
-do_composer = True#False#True
-do_clone = True#False#True
+do_composer = True
+do_clone = True
 
+if args.test is True:
+    do_composer = False
+    do_clone = False
 
 magento_source_path = "./magento2-source/"
 gitCheckoutCommand = "cd " + magento_source_path + " && git checkout tags/"+gitTagVersionBranch
@@ -149,7 +186,7 @@ for name, value in  packages_json.items():
             print(package["dist"]['url'])
             print(package["name"])
             del package["dist"]
-            p.pprint(package)
+            #p.pprint(package)
 
     
 
@@ -184,6 +221,9 @@ for folder in composer_crap:
     composer_folders.append(composer_cache_folder+folder+"/")
     os.system("echo A | unzip " + composer_cache_folder+folder+ "/*.zip -d "+composer_cache_folder+folder+"/")
     os.system("echo A | rm  " + composer_cache_folder+folder+ "/*.zip")
+    if 'magento2-base' in folder:
+        # remove stupid tests from magento
+        os.system("echo A | rm  " + composer_cache_folder+folder+ "/dev/tests/ ")
 
 print("composer test passed")
 
@@ -207,7 +247,7 @@ backend_theme_folder = glob.glob(magento_source_path+"/app/design/adminhtml/Mage
 language_folder = glob.glob(magento_source_path+"/app/i18n/Magento/*")
 magento_framework_folder = glob.glob(magento_source_path+"/lib/internal/Magento/*")
 
-folders = app_folders + frontend_theme_folder + magento_framework_folder + language_folder + backend_theme_folder + composer_folders
+folders = app_folders + frontend_theme_folder + magento_framework_folder + language_folder + backend_theme_folder + composer_folders + composer_meta_folder
 
 if only_zend is True:
     folders = magento_framework_folder
@@ -349,13 +389,30 @@ for module in folders:
         print("Print composer data")
         if "replace" not in data:
             data["replace"] = {}
-        p.pprint(data["replace"])
+        #p.pprint(data["replace"])
         #replace pakages
-        for package in  data["require"]:
-            p.pprint(package)
-        data["replace"].update({moduleName: "*"}) #"self.version"}) #"*"})
-        p.pprint(data["replace"])
-        ##exit()
+        p.pprint(data["require"])
+        replace_require_packages = True
+        if replace_require_packages == True:
+            new_packges = {}
+            #replace magento vendor
+            for package in data["require"]:
+                new_packges.update({package.replace("magento/", "magenxcommerce/"): data["require"][package]})
+            data["require"]=new_packges
+            p.pprint(data["require"])
+            data["replace"].update({moduleName: "*"}) #"self.version"}) #"*"})
+
+        replace_suggest_packages = True
+
+        if replace_suggest_packages == True:
+            new_suggest={}
+            if 'suggest' in data:
+                for sugest in data['suggest']:
+                    new_suggest.update({sugest.replace("magento/", "magenxcommerce/"): data["suggest"][sugest]})
+                data["suggest"]=new_suggest
+            
+                p.pprint(data['suggest'])
+        #exit()
 
         logf.write(module +" ----> "+moduleNameNew+"\n")
         # save new composer name to buid module folder composer.json
@@ -403,7 +460,7 @@ for module in folders:
         addRemoteOriginCommand = "git remote add origin https://"+gitUser+":"+gitToken+"@github.com/" + moduleNameNew + ".git"
         print(cdCommand + " && " + addRemoteOriginCommand)
         exec(cdCommand + " && " + addRemoteOriginCommand)
-        
+        exec(cdCommand+" && git fetch")
         #ToDo: Override remote branch 
         overwriteRemote = True
 
@@ -411,24 +468,39 @@ for module in folders:
         # ToDo: check it is id the lates version
         if gitPushToMaster == True:
             print("Push Magento master branch")
-            commitCommand = "git checkout -b master; git add . ; git commit -m 'Magento OS Fork version " + gitTagVersionBranch + " commit'; git push  -u origin master"
+            commitCommand = "git checkout -b master; git add . ; git commit -m 'Magento OS Fork version " + gitTagVersionBranch + " commit'; git push  -u origin master "
             print (colored(cdCommand + " && " + commitCommand, 'green'))
             exec(cdCommand + " && " + commitCommand)
 
         # commit module by magento version  
         ## Magento version tag doesn't work becouse of: Some tags were ignored because of a magento version mismatch module version in composer.json, read more.
         print("Push Magento version branch")
-        checkGitBranchCommand  = "git branch -l " + gitTagVersionBranch
+        # branches shuldn't intersects with the tags. It is aditional feture 
+        branch_name = "m"+gitTagVersionBranch
+        checkGitBranchCommand  = "git branch -l " + branch_name
         print(colored(cdCommand + " && " + checkGitBranchCommand, 'blue'))
         output = exec(cdCommand + " && " + checkGitBranchCommand)
-        if gitTagVersionBranch not in output:
-            commitCommand = "git checkout -b " + gitTagVersionBranch + "; git add . ; git commit -m 'Magento Fork initial commit'; git push -u origin " + gitTagVersionBranch
-            print (colored(cdCommand + " && " + commitCommand, 'yellow'))
-            exec(cdCommand + " && " + commitCommand)
-            logf.write("GitHub magento version branch created:" + gitTagVersionBranch + "\n")
+        if branch_name not in output or overwriteRemote == True:
+            
+            if overwriteRemote == True:
+                os.system(cdCommand + " && git checkout -b default && git push origin default")
+                os.system("gh api repos/{branch_name} --method PATCH --field 'default_branch=default' >/dev/null".format(branch_name = branch_name))
+                print("Delete Remote Branch for Override")
+                os.system(cdCommand + " && git branch -d "+branch_name+" && git push origin -f --delete "+branch_name)
+
+            commitCommand = [
+                "git checkout -b " + branch_name,
+                "git add . ",
+                "git commit -m 'Magento OS Fork version'",
+                "git push -u origin " + gitTagVersionBranch
+            ]
+
+            print (colored(cdCommand + " && " + str.join('+',commitCommand), 'yellow'))
+            exec(commitCommand,cd=buildModuleFolder)
+            logf.write("GitHub magento version branch created:" + branch_name + "\n")
         else:
-            print("Git magento release branch " + gitTagVersionBranch + " already exists")
-            logf.write("Git magento release branch " + gitTagVersionBranch + " already exists\n")
+            print("Git magento release branch " + branch_name + " already exists")
+            logf.write("Git magento release branch " + branch_name + " already exists\n")
 
         # commit modile by 
         print("Push module version branch")
@@ -439,16 +511,21 @@ for module in folders:
         if moduleVersion not in output or overwriteRemote == True:
             
             if overwriteRemote == True:
-                os.system(cdCommand + " && git checkout -b placeholder && git push origin placeholder")
-                os.system("gh api repos/{moduleNameNew} --method PATCH --field 'default_branch=placeholder'".format(moduleNameNew = moduleNameNew))
+                os.system(cdCommand + " && git checkout -b default && git push origin default")
+                os.system("gh api repos/{moduleNameNew} --method PATCH --field 'default_branch=default' >/dev/null".format(moduleNameNew = moduleNameNew))
                 print("Delete Remote TAg Override")
                 os.system(cdCommand + " && git tag -d "+moduleVersion+" && git push origin :refs/tags/" + moduleVersion)
                 print("Delete Remote Branch Override")
                 os.system(cdCommand + " && git branch -d "+moduleVersion+" && git push origin -f --delete "+moduleVersion)
 
-            commitCommand = "git checkout -b " + moduleVersion + "; git add . ; git commit -m 'Magento OS Fork commit'; git push -f -u origin " + moduleVersion
-            print(colored(cdCommand + " && " + commitCommand, 'yellow'))
-            exec(cdCommand + " && " + commitCommand)
+            commitCommand = [
+                "git checkout -b " + moduleVersion,
+                "git add .",
+                "git commit -m 'Magento OS Fork commit'",
+                "git push -f -u origin " + moduleVersion
+            ]
+            print(colored(cdCommand + " && " + str.join('+',commitCommand), 'yellow'))
+            exec(commitCommand,cd=buildModuleFolder)
             logf.write("GitHub module " + moduleNameNew + " version branch created:" + moduleNameNew + "\n")
         else:
             print("Git module versio branch " + moduleVersion + " already exists")
@@ -460,20 +537,24 @@ for module in folders:
         checkGitTagCommand  = "git tag -l " + moduleVersion
         print(colored(cdCommand + " && " + checkGitTagCommand, 'blue'))
         tagOutput = exec(cdCommand + " && " + checkGitTagCommand)
-        if moduleVersion not in tagOutput  or overwriteRemote == True:
-            commitCommand = "git tag " + moduleVersion + "; git push origin -f --tags"
+        if moduleVersion not in tagOutput or overwriteRemote == True:
+            commitCommand = "git add .; git commit -m 'Fork Tag' ; git tag " + moduleVersion + "; pwd; git push origin -f --tags"
             print(colored(cdCommand + " && " + commitCommand, 'yellow'))
             exec(cdCommand + " && " + commitCommand)
-
+            
             # In some cases we need recreate tags: https://gist.github.com/danielestevez/2044589
-
+            if overwriteRemote == True:
+                ghReleaseDeleteCMD = "gh release delete " + moduleVersion + " -y"
+                print (colored("Delete Release: " + ghReleaseDeleteCMD, 'blue'))
+                exec(cdCommand + " && " + ghReleaseDeleteCMD,system=True)
+            
             # Create release by module version
-            ghReleaseCreateCommand = "gh release create " + moduleVersion
-            print (colored(ghReleaseCreateCommand, 'blue'))
-            exec(cdCommand + " && " + ghReleaseCreateCommand)
+            ghReleaseCreateCommand = "gh release create " + moduleVersion + " -t 'Release "+moduleVersion+"' -n ''"
+            print (colored("Create release:"+ghReleaseCreateCommand, 'blue'))
+            exec(cdCommand + " && " + ghReleaseCreateCommand, system=True)
         else:
             print("Tag " + moduleVersion + " already exists")
-
+        exit()
 
         #Old code we have better one now -> check packages list
         print("Check if package exists")
