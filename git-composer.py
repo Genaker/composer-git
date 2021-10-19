@@ -12,8 +12,9 @@ import urllib
 # requires execute: pip3 install termcolor
 from termcolor import colored
 
-def exec(commands, return_code_output=False, output=True, dev_null=False, system=False, wait=True, cd=''):
-
+#@alias_param("debug", alias='outpus')
+def exec(commands,return_code=False,dev_null=False,system=False,wait=True,cd='',exception=False, debug=True):
+    result = []
     if type(commands) == list:
         commands
         print(colored("Multiple commands: " + str.join(';+', commands), 'yellow'))
@@ -25,7 +26,7 @@ def exec(commands, return_code_output=False, output=True, dev_null=False, system
     for command in commands:
         start_time = time.time()
         if dev_null == True:
-            dev_null = ' > /dev/null '
+            dev_null = ' 1> /dev/null '
         else: dev_null = ''
         
         if wait == False:
@@ -34,7 +35,8 @@ def exec(commands, return_code_output=False, output=True, dev_null=False, system
 
         command = cd + command + dev_null + wait
 
-        print("CMD: " + command)
+        if debug == True:
+            print("CMD: " + command)
 
         if system == True:
             os.system(command)
@@ -42,24 +44,38 @@ def exec(commands, return_code_output=False, output=True, dev_null=False, system
         
         try:
             result_output = subprocess.check_output(command, shell=True, stderr=subprocess.STDOUT)
-            if output == True:
+            if debug == True:
                 print("Out:")
                 print(str(result_output.decode()))
-            return_code = 0
+            cmd_return_code = 0
         except subprocess.CalledProcessError as e:
-            if output == True:
+            if debug == True:
                 print("Error:")
                 print(str(e.output.decode()))
+            if exception == True:
+                return e
             result_output = e.output
-            return_code = e.returncode
-        if return_code_output == True:
-            ret = {"result_output":result_output, "return_code":return_code}
-            print(ret)
+            cmd_return_code = e.returncode
+        if return_code == True:
+            result.append({"result_output":str(result_output.decode()), "return_code":cmd_return_code})
+            print(result)
             print(colored("Command Execution Time %s seconds\n----------------" % str(time.time() - start_time), "magenta"))
-            return ret
         else:
             print(colored("Command Execution Time %s seconds\n----------------" % str(time.time() - start_time), "magenta"))
-            return str(result_output.decode())
+            result.append(str(result_output.decode()))
+
+    if len(commands) == 1:
+        return result[0]
+    return result
+
+def get_linux_version():
+    #Ubuntu
+    LINUX_VERSION=exec('hostnamectl | grep "Operating System"', return_code=True)
+    my_version = LINUX_VERSION['result_output'].split(":")[1].strip()
+    print ('"' + my_version+'"')
+    return my_version
+
+#get_linux_version()
 
 os.system("python3 -V")
 os.system("echo $TEST")
@@ -74,7 +90,7 @@ args = parser.parse_args()
 version = args.version
 
 try:
-    result_release = exec("gh api /repos/magento/magento2/releases", output=False)
+    result_release = exec("gh api /repos/magento/magento2/releases", debug=False)
     releases = json.loads(result_release)
 except json.decoder.JSONDecodeError:
     print("Fetch GitHub API data error. Check Credentials.")
@@ -111,27 +127,44 @@ composer_only = False#True
 clean_up = True
 do_composer = True
 do_clone = True
+do_msi = False
 
 if args.test is True:
     do_composer = False
     do_clone = False
 
 magento_source_path = "./magento2-source/"
+msi_source_path = "./magento2-msi/"
 gitCheckoutCommand = "cd " + magento_source_path + " && git checkout tags/"+gitTagVersionBranch
+cache_folder = "./magento-composer-cache"
 
 
 if do_clone == True:
     if clean_up == True:
         os.system("rm -rf " + magento_source_path)
         os.system("mkdir " + magento_source_path)
-    os.system("git clone https://github.com/magento/magento2.git "+magento_source_path)
-    os.system(gitCheckoutCommand)
+        os.system("rm -rf " + msi_source_path)
+        os.system("mkdir " + msi_source_path)
+        os.system("rm -rf "+ cache_folder)
+        os.system("mkdir " + cache_folder)
 
-git_tag_chechout_output = exec(gitCheckoutCommand, return_code_output=True)
+    print("Clone Magento Main Repo")
+    exec("git clone  --branch "+gitTagVersionBranch+"  --single-branch  https://github.com/magento/magento2.git "+magento_source_path, system=True)
+
+    if do_msi == True:
+        print("Clone Magento MSI Repo")
+        exec("git clone https://github.com/magento/inventory "+msi_source_path, system=True)
+
+ret_code = exec(gitCheckoutCommand,return_code=True)
+if ret_code['return_code'] == 1:
+    exec("git clone  --branch "+gitTagVersionBranch+"  --single-branch  https://github.com/magento/magento2.git "+magento_source_path, system=True)
+    exec(gitCheckoutCommand,system=True,return_code=True)
+
+git_tag_chechout_output = exec(gitCheckoutCommand, return_code=True)
 print(git_tag_chechout_output['result_output'])
 
 if git_tag_chechout_output['return_code'] == 1:
-    print("This Tag (release/Version) doesn't exists")
+    print("Error: This Tag (release/Version) doesn't exists")
     exit()
 
 composer_install_cmd = "cd " + magento_source_path + " && composer install --ignore-platform-reqs"
@@ -142,7 +175,10 @@ if do_composer == True:
 
     os.system("rm -rf " + magento_composer_folder)
     composer_project = "composer create-project --repository-url=https://repo.magento.com/ magento/project-community-edition=" + gitTagVersionBranch + " "+ magento_composer_folder + " --ignore-platform-reqs --no-dev"
-    os.system(composer_project)
+    print("Composer create project. Please wait ...")
+    exec(composer_project,debug=False)
+    #exit();
+    #os.system(composer_project)
     print("check comoser")
     #comp_rslt = exec(composer_install_cmd)
     #if "Nothing to install" not in comp_rslt:
@@ -163,7 +199,7 @@ providers_json = json.loads(providers_json)
 
 packages_ce_sha356 = providers_json['provider-includes']['p/provider-ce$%hash%.json']['sha256']
 packages_magento_url = "curl -s -H 'Authorization: Basic "+str(base64.decode('ascii'))+"' https://repo.magento.com/p/provider-ce%24"+packages_ce_sha356+".json"
-packages_json = exec(packages_magento_url, output=False)
+packages_json = exec(packages_magento_url, debug=False)
 packages_json = json.loads(str(packages_json))['providers']
 
 
@@ -187,10 +223,17 @@ for name, value in  packages_json.items():
             print(package["name"])
             del package["dist"]
             #p.pprint(package)
-
-    
-
-            cache_folder = "./magento-composer-cache"
+            #MSI if in the main metapackage
+            if "magento/inventory-metapackage" in package["require"]:
+                msi_version = package["require"]["magento/inventory-metapackage"]
+                if do_msi == True:
+                    #MSI switch to branch
+                    exec("cd " + msi_source_path+ " && git checkout tags/" + msi_version, system=True)
+                    exec("rm -rf " + msi_source_path+ "/dev ", system=True)
+            else:
+                do_msi = False
+                exec("rm -rf " + msi_source_path)
+ 
             os.system("mkdir -p "+cache_folder+"/"+name)
 
             # download the file contents in binary format
@@ -219,7 +262,7 @@ composer_folders = []
 
 for folder in composer_crap:
     composer_folders.append(composer_cache_folder+folder+"/")
-    os.system("echo A | unzip " + composer_cache_folder+folder+ "/*.zip -d "+composer_cache_folder+folder+"/")
+    os.system("echo A | unzip " + composer_cache_folder+folder+ "/*.zip -d "+composer_cache_folder+folder+"/  > /dev/null")
     os.system("echo A | rm  " + composer_cache_folder+folder+ "/*.zip")
     if 'magento2-base' in folder:
         # remove stupid tests from magento
@@ -227,13 +270,15 @@ for folder in composer_crap:
 
 print("composer test passed")
 
-clean_up_zend = False
+clean_up_zend = True
+print("Do Zenf Framework stuff")
 if clean_up_zend == True:
     os.system("rm -rf "  + magento_source_path+"/lib/internal/Magento/zendframework")
 os.system("git clone https://github.com/magento/zf1 "+magento_source_path+"/lib/internal/Magento/zendframework")
 os.system("cd "+magento_source_path+"/lib/internal/Magento/zendframework && git checkout tags/"+zend_version)
 os.system("rm -rf  "+magento_source_path+"/lib/internal/Magento/zendframework/.git")
 
+print("Change magento branch/tag to version " + gitTagVersionBranch)
 
 logf.write("cd "+magento_source_path+" && git checkout tags/"+gitTagVersionBranch+"\n")
 
@@ -246,8 +291,11 @@ frontend_theme_folder = glob.glob(magento_source_path+"/app/design/frontend/Mage
 backend_theme_folder = glob.glob(magento_source_path+"/app/design/adminhtml/Magento/*")
 language_folder = glob.glob(magento_source_path+"/app/i18n/Magento/*")
 magento_framework_folder = glob.glob(magento_source_path+"/lib/internal/Magento/*")
+msi_folder = []
+if do_msi == True:
+    msi_folder = glob.glob(msi_source_path+"/*")
 
-folders = app_folders + frontend_theme_folder + magento_framework_folder + language_folder + backend_theme_folder + composer_folders + composer_meta_folder
+folders = msi_folder + app_folders + frontend_theme_folder + magento_framework_folder + language_folder + backend_theme_folder + composer_folders + composer_meta_folder 
 
 if only_zend is True:
     folders = magento_framework_folder
@@ -262,7 +310,7 @@ print(folders)
 n = 1;
 
 print("Test gh cli:")
-checkGitHubCli = exec("gh")
+checkGitHubCli = exec("gh", debug=False)
 
 if "not found" in checkGitHubCli:
     print("Command 'gh' is required and not found!!!")
@@ -314,7 +362,7 @@ packages = r.json()
 packages = packages["packageNames"]
 
 for package in packages:
-    print(package)
+    package
 
 organisationForAPI = "orgs/" + organisationName
 #Check if it is user and not org
@@ -374,7 +422,11 @@ for module in folders:
             # set Hardcoded version for Zend framework
             if "zendframework" in folderModuleName:
                 data["version"] = zend_version
-        
+            if "inventory" in folderModuleName:
+                data["version"] = msi_version
+        if "version" not in data:
+            print("Error no verson")
+            exit()
         moduleVersion = data["version"]
 
 
@@ -392,16 +444,30 @@ for module in folders:
         #p.pprint(data["replace"])
         #replace pakages
         p.pprint(data["require"])
+        if "repositories" in data:
+            del data["repositories"]
+
         replace_require_packages = True
+        exclude_from_require_replace = ['magento/inventory-metapackage', 'magento/composer-dependency-version-audit-plugin']
+        # only public packages will works 
+        left_magento_package = ['magento/composer']
         if replace_require_packages == True:
             new_packges = {}
             #replace magento vendor
             for package in data["require"]:
-                new_packges.update({package.replace("magento/", "magenxcommerce/"): data["require"][package]})
+                if package not in exclude_from_require_replace:
+                    if pakages not in left_magento_package:
+                        new_packges.update({package.replace("magento/", "magenxcommerce/"): data["require"][package]})
+                    else:
+                        new_packges.update({package: data["require"][package]})
+                else:
+                    package
+                    # Not including MSI for now. We don't have fork of this crap 
+                    # new_packges.update({package: data["require"][package]})
             data["require"]=new_packges
             p.pprint(data["require"])
             data["replace"].update({moduleName: "*"}) #"self.version"}) #"*"})
-
+    
         replace_suggest_packages = True
 
         if replace_suggest_packages == True:
@@ -432,8 +498,8 @@ for module in folders:
         exec(cdCommand + " && git init ")
 
         # fetch remote
-        print(cdCommand + " && git fetch ")
-        os.system(cdCommand + " && git fetch ")
+        print(cdCommand + " && git fetch")
+        os.system(cdCommand + " && git fetch -q")
 
         # outdated now we are cheking gitReposetories list 
         #Check if repo exists
@@ -460,7 +526,7 @@ for module in folders:
         addRemoteOriginCommand = "git remote add origin https://"+gitUser+":"+gitToken+"@github.com/" + moduleNameNew + ".git"
         print(cdCommand + " && " + addRemoteOriginCommand)
         exec(cdCommand + " && " + addRemoteOriginCommand)
-        exec(cdCommand+" && git fetch")
+        exec(cdCommand+" && git fetch -q")
         #ToDo: Override remote branch 
         overwriteRemote = True
 
@@ -468,7 +534,7 @@ for module in folders:
         # ToDo: check it is id the lates version
         if gitPushToMaster == True:
             print("Push Magento master branch")
-            commitCommand = "git checkout -b master; git add . ; git commit -m 'Magento OS Fork version " + gitTagVersionBranch + " commit'; git push  -u origin master "
+            commitCommand = "git checkout -b master; git add . ; git commit -q -m 'Magento OS Fork version " + gitTagVersionBranch + " commit'; git push  -u origin master "
             print (colored(cdCommand + " && " + commitCommand, 'green'))
             exec(cdCommand + " && " + commitCommand)
 
@@ -491,7 +557,7 @@ for module in folders:
             commitCommand = [
                 "git checkout -b " + branch_name,
                 "git add . ",
-                "git commit -m 'Magento OS Fork version'",
+                "git commit -q -m 'Magento OS Fork version'",
                 "git push -u origin " + gitTagVersionBranch
             ]
 
@@ -521,7 +587,7 @@ for module in folders:
             commitCommand = [
                 "git checkout -b " + moduleVersion,
                 "git add .",
-                "git commit -m 'Magento OS Fork commit'",
+                "git commit -q -m 'Magento OS Fork commit'",
                 "git push -f -u origin " + moduleVersion
             ]
             print(colored(cdCommand + " && " + str.join('+',commitCommand), 'yellow'))
@@ -538,7 +604,7 @@ for module in folders:
         print(colored(cdCommand + " && " + checkGitTagCommand, 'blue'))
         tagOutput = exec(cdCommand + " && " + checkGitTagCommand)
         if moduleVersion not in tagOutput or overwriteRemote == True:
-            commitCommand = "git add .; git commit -m 'Fork Tag' ; git tag " + moduleVersion + "; pwd; git push origin -f --tags"
+            commitCommand = "git add .; git commit -q -m 'Fork Tag' ; git tag " + moduleVersion + "; pwd; git push origin -f --tags"
             print(colored(cdCommand + " && " + commitCommand, 'yellow'))
             exec(cdCommand + " && " + commitCommand)
             
@@ -554,7 +620,6 @@ for module in folders:
             exec(cdCommand + " && " + ghReleaseCreateCommand, system=True)
         else:
             print("Tag " + moduleVersion + " already exists")
-        exit()
 
         #Old code we have better one now -> check packages list
         print("Check if package exists")
