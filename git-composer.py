@@ -22,12 +22,15 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument('-v','--version',type=str)
+    # do only composer packages metadata,cache and vendor
+    parser.add_argument('-c','--composer', action='store_true')
     # test run argument 
     parser.add_argument('-t','--test',  dest='test', action='store_true')
     parser.set_defaults(test=False)
     args = parser.parse_args()
 
     version = args.version
+    composer = args.composer
 
     try:
         result_release = exec("gh api /repos/magento/magento2/releases", debug=False)
@@ -40,7 +43,7 @@ def main():
     magento_versions = []
     for release in releases:
         magento_versions.append(release['tag_name'])
-        full_generate_command += "python3 git-composer.py --version " + release['tag_name'] + "; "
+        full_generate_command += "python3 git-composer.py --version " + release['tag_name'] + " -c ; "
 
     print(magento_versions)
     print(full_generate_command)
@@ -62,7 +65,7 @@ def main():
     # Clone Zend Framework
     zend_version = "1.14.5"
     only_zend = False
-    composer_only = False#True
+    composer_only = composer #False#True
     clean_up = True
     do_composer = True
     do_clone = True
@@ -141,17 +144,29 @@ def main():
         'lib/web/tiny_mce_4','pub/media','pub/media/import','pub/media/sitemap','pub/media/customer_address','pub/media/custom_options',
         'pub/errors','pub/opt','setup','phpserver','lib/web','lib/web/varien','lib/web/css','dev/tools','dev/tests/static']
 
+    lock_data = get_from_composerlock(magento_composer_folder)
 
+    #metapackages
+    metapackage_crap = ['magento/product-community-edition','magento/page-builder','magento/security-package']
 
-    packages_magento_repo = packageist_repo_get(gitTagVersionBranch,cache_folder)
     # Packages exracted from the composer cache 
-    composer_crap = ['project-community-edition','framework-bulk','framework-message-queue', 'framework-amqp', 'composer-root-update-plugin','composer-dependency-version-audit-plugin','composer']
-    vendor_crap = ['magento/magento-composer-installer', 'magento/magento2-base', 'magento/module-paypal-recaptcha']
+    composer_crap = ['project-community-edition','framework-bulk','framework-message-queue', 'framework-amqp', 'composer-root-update-plugin','composer']
+    vendor_crap = ['magento/magento-composer-installer', 'magento/magento2-base', 'magento/module-paypal-recaptcha', 'magento/composer-dependency-version-audit-plugin']
+    
+    page_builder_metapackage_data = []
+    security_package_metapackage_data = []
+
+    if 'magento/page-builder' in lock_data:
+        page_builder_metapackage_data = lock_data['magento/page-builder']['require'].keys()
+    if 'magento/security-package' in lock_data:
+        security_package_metapackage_data = lock_data['magento/security-package']['require'].keys()
+
+    vendor_crap = vendor_crap + list(page_builder_metapackage_data)
+    vendor_crap = vendor_crap + list(security_package_metapackage_data)
     #ToDo: extract MSI from the magento
     msi_composer_crap = []
     
-    lock_data = get_from_composerlock(magento_composer_folder)
-
+    packages_magento_repo = packageist_repo_get(metapackage_crap,gitTagVersionBranch,cache_folder,lock_data)
     #p.pprint(lock_data)
 
     composer_folders = get_from_composer_cache(composer_crap, composer_cache_folder)
@@ -192,7 +207,7 @@ def main():
         folders = magento_framework_folder
 
     if composer_only is True:
-        folders = composer_folders + composer_meta_folder
+        folders = composer_folders + composer_meta_folder + vendor_to_git_folders
 
     #ToDo: add another folders with the composer packages. Done 
     # etc...
@@ -357,6 +372,7 @@ def main():
             exclude_from_require_replace = ['magento/composer-dependency-version-audit-plugin', 'sebastian/phpcpd', 'magento/inventory-composer-metapackage','magento/inventory-metapackage','magento/adobe-ims', 'yotpo/magento2-module-yotpo-reviews-bundle', 'magento/adobe-stock-integration', ]
             # only public packages will works 
             left_magento_package = ['magento/security-package', 'magento/google-shopping-ads', 'magento/page-builder']#['magento/composer']
+            
             if replace_require_packages == True:
                 new_packges = replace_composer_require_packages(data, exclude_from_require_replace, left_magento_package)
                 data["require"]=new_packges
@@ -549,11 +565,11 @@ def get_from_vendor(vendor,magento_composer_folder):
         if file_exists == True:
             vendor_to_git_folders.append(magento_vendoe_folder+pakage)
         else:
-            print("Vendor doesn't exists")
-            exit()
+            print("Vendor ["+pakage+"] doesn't exists")
+            #exit()
     return vendor_to_git_folders
 
-def packageist_repo_get(gitTagVersionBranch, cache_folder):
+def packageist_repo_get(metapackage_crap, gitTagVersionBranch, cache_folder, lock_data):
     Public_Key = "7bb8d7e839355a2542ab3f37619cfa0e"
     Private_Key = "09d781290a5837848a597cee91678d8c"
 
@@ -570,9 +586,6 @@ def packageist_repo_get(gitTagVersionBranch, cache_folder):
     packages_json = exec(packages_magento_url, debug=False)
     packages_json = json.loads(str(packages_json))['providers']
 
-    #metapackages
-    metapackage_crap = ['magento/product-community-edition']
-
     package_url = "https://repo.magento.com/p/{name}%24{sha}.json"
     packages_magento_repo = {}
     for name, value in  packages_json.items():
@@ -587,10 +600,19 @@ def packageist_repo_get(gitTagVersionBranch, cache_folder):
                 print("ALL Packages:")
 
                 #p.pprint(packages2_json[name])
-                package = packages2_json[name][gitTagVersionBranch]
+                if name in packages2_json and name in lock_data:
+                    if gitTagVersionBranch in packages2_json[name]:
+                        package = packages2_json[name][gitTagVersionBranch]
+                    else:
+                        module_version_from_lock = lock_data[name]['version']
+                        package = packages2_json[name][module_version_from_lock]
+                        #p.pprint(package)
+                else:
+                    print(colored("CONTINUE no packages found",'red'))
+                    continue
                 #for version in package:
-                print(package["dist"]['url'])
-                print(package["name"])
+                #print(package["dist"]['url'])
+                #print(package["name"])
                 del package["dist"]
                 #p.pprint(package)
                 #MSI if in the main metapackage
